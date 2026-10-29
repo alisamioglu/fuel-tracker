@@ -3,20 +3,69 @@ import { Alert, Pressable, StyleSheet, View } from 'react-native';
 
 import { Icon } from '@/components/icon';
 import { ThemedText } from '@/components/themed-text';
-import { Button, Card, Field, FieldRow, IconBadge, Screen, SectionTitle } from '@/components/ui';
+import { useToast } from '@/components/toast';
+import { Button, Card, Field, FieldRow, Screen, SectionTitle, Segmented } from '@/components/ui';
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { LANGUAGES, useI18n, type LanguageChoice } from '@/i18n';
-import { useData } from '@/lib/data-context';
+import { useData, useFormat } from '@/lib/data-context';
 import { parseNumber } from '@/lib/format';
+import { successFeedback, tapFeedback } from '@/lib/haptics';
 import { ensurePermission, sendTestNotification } from '@/lib/notifications';
-import { MAINTENANCE_KINDS, type MaintenanceKind } from '@/lib/types';
+import {
+  CAR_EMOJIS,
+  CURRENCIES,
+  KIND_EMOJI,
+  MAINTENANCE_KINDS,
+  type MaintenanceKind,
+} from '@/lib/types';
+import { CURRENCY_SYMBOLS } from '@/lib/units';
+
+function CarCard() {
+  const { settings, updateSettings } = useData();
+  const { t } = useI18n();
+  const theme = useTheme();
+  const [name, setName] = useState(settings.carName);
+
+  return (
+    <Card>
+      <View style={styles.emojiRow}>
+        {CAR_EMOJIS.map((emoji) => {
+          const selected = emoji === settings.carEmoji;
+          return (
+            <Pressable
+              key={emoji}
+              onPress={() => {
+                tapFeedback();
+                updateSettings({ carEmoji: emoji });
+              }}
+              style={[
+                styles.emojiChoice,
+                { backgroundColor: selected ? theme.primarySoft : 'transparent' },
+                selected && { borderColor: theme.primary },
+              ]}>
+              <ThemedText style={styles.carEmoji}>{emoji}</ThemedText>
+            </Pressable>
+          );
+        })}
+      </View>
+      <Field
+        label={t('carName')}
+        value={name}
+        onChangeText={setName}
+        onEndEditing={() => updateSettings({ carName: name.trim() })}
+        placeholder={t('carNamePlaceholder')}
+        returnKeyType="done"
+      />
+    </Card>
+  );
+}
 
 function LanguagePicker() {
   const { t, choice, setChoice } = useI18n();
   const theme = useTheme();
   const options: { code: LanguageChoice; name: string }[] = [
-    { code: 'system', name: t('phoneLanguage') },
+    { code: 'system', name: `📱 ${t('phoneLanguage')}` },
     ...LANGUAGES,
   ];
 
@@ -27,7 +76,10 @@ function LanguagePicker() {
         return (
           <Pressable
             key={option.code}
-            onPress={() => setChoice(option.code)}
+            onPress={() => {
+              tapFeedback();
+              setChoice(option.code);
+            }}
             style={({ pressed }) => [
               styles.listRow,
               i > 0 && { borderTopColor: theme.border, borderTopWidth: StyleSheet.hairlineWidth },
@@ -44,76 +96,96 @@ function LanguagePicker() {
   );
 }
 
-function IntervalsEditor() {
+function IntervalEditor({ kind, onDone }: { kind: MaintenanceKind; onDone: () => void }) {
   const { intervals, setInterval } = useData();
-  const { t, number } = useI18n();
-  // Text state per kind, so half-typed numbers don't get saved
-  const [draft, setDraft] = useState(() =>
-    Object.fromEntries(
-      MAINTENANCE_KINDS.map((k) => [k, { km: String(intervals[k].km), months: String(intervals[k].months) }]),
-    ) as Record<MaintenanceKind, { km: string; months: string }>,
-  );
-
-  function change(kind: MaintenanceKind, field: 'km' | 'months', value: string) {
-    setDraft({ ...draft, [kind]: { ...draft[kind], [field]: value } });
-  }
+  const { t } = useI18n();
+  const format = useFormat();
+  const interval = intervals[kind];
+  const [distance, setDistance] = useState(String(Math.round(format.toDistance(interval.km))));
+  const [months, setMonths] = useState(String(interval.months));
 
   function save() {
-    const parsed = MAINTENANCE_KINDS.map((kind) => ({
-      kind,
-      km: parseNumber(draft[kind].km),
-      months: parseNumber(draft[kind].months),
-    }));
-    const valid = parsed.every(
-      (p) => p.km > 0 && p.months > 0 && Number.isInteger(p.km) && Number.isInteger(p.months),
-    );
+    const distanceValue = parseNumber(distance);
+    const monthsValue = parseNumber(months);
+    const valid =
+      Number.isInteger(distanceValue) && distanceValue >= 0 && Number.isInteger(monthsValue) && monthsValue >= 1;
     if (!valid) {
       Alert.alert(t('checkNumbers'), t('invalidInterval'));
       return;
     }
-    parsed.forEach((p) => setInterval(p.kind, { km: p.km, months: p.months }));
-    Alert.alert(
-      t('saved'),
-      parsed.map((p) => `${t(p.kind)}: ${number(p.km)} km / ${p.months}`).join('\n'),
-    );
+    setInterval(kind, { km: Math.round(format.fromDistance(distanceValue)), months: monthsValue });
+    successFeedback();
+    onDone();
   }
 
   return (
-    <Card>
-      <ThemedText type="small" themeColor="textSecondary">
-        {t('intervalsHint')}
-      </ThemedText>
-      {MAINTENANCE_KINDS.map((kind) => (
-        <View key={kind} style={styles.intervalBlock}>
-          <View style={styles.intervalHeader}>
-            <IconBadge name={kind} size={28} />
-            <ThemedText type="smallBold">{t(kind)}</ThemedText>
+    <View style={styles.editor}>
+      <FieldRow>
+        <Field
+          label={t('everyKm', { unit: format.distanceUnit })}
+          value={distance}
+          onChangeText={setDistance}
+          keyboardType="numeric"
+          hint={t('onlyTime')}
+        />
+        <Field
+          label={t('orMonths')}
+          value={months}
+          onChangeText={setMonths}
+          keyboardType="numeric"
+        />
+      </FieldRow>
+      <Button label={t('save')} icon="check" variant="secondary" onPress={save} />
+    </View>
+  );
+}
+
+function Intervals() {
+  const { intervals } = useData();
+  const { t } = useI18n();
+  const format = useFormat();
+  const theme = useTheme();
+  const [open, setOpen] = useState<MaintenanceKind | null>(null);
+
+  return (
+    <Card style={styles.listCard}>
+      {MAINTENANCE_KINDS.map((kind, i) => {
+        const interval = intervals[kind];
+        const summary =
+          interval.km > 0
+            ? t('intervalSummary', { distance: format.distance(interval.km), months: interval.months })
+            : t('intervalSummaryTime', { months: interval.months });
+        return (
+          <View
+            key={kind}
+            style={i > 0 && { borderTopColor: theme.border, borderTopWidth: StyleSheet.hairlineWidth }}>
+            <Pressable
+              onPress={() => {
+                tapFeedback();
+                setOpen(open === kind ? null : kind);
+              }}
+              style={styles.listRow}>
+              <ThemedText style={styles.kindEmoji}>{KIND_EMOJI[kind]}</ThemedText>
+              <ThemedText type="smallBold" style={styles.flex}>
+                {t(kind)}
+              </ThemedText>
+              <ThemedText type="small" themeColor="textSecondary">
+                {summary}
+              </ThemedText>
+            </Pressable>
+            {open === kind && <IntervalEditor kind={kind} onDone={() => setOpen(null)} />}
           </View>
-          <FieldRow>
-            <Field
-              label={t('everyKm')}
-              unit="km"
-              value={draft[kind].km}
-              onChangeText={(v) => change(kind, 'km', v)}
-              keyboardType="numeric"
-            />
-            <Field
-              label={t('orMonths')}
-              value={draft[kind].months}
-              onChangeText={(v) => change(kind, 'months', v)}
-              keyboardType="numeric"
-            />
-          </FieldRow>
-        </View>
-      ))}
-      <Button label={t('save')} icon="check" onPress={save} />
+        );
+      })}
     </Card>
   );
 }
 
 export default function SettingsScreen() {
+  const { settings, updateSettings } = useData();
   const { t } = useI18n();
   const theme = useTheme();
+  const toast = useToast();
 
   async function test() {
     if (!(await ensurePermission())) {
@@ -121,15 +193,39 @@ export default function SettingsScreen() {
       return;
     }
     await sendTestNotification();
+    toast({ emoji: '🔔', title: t('notifTestTitle'), body: t('notifTestBody') });
   }
 
   return (
     <Screen title={t('settingsTitle')}>
+      <SectionTitle>{t('car')}</SectionTitle>
+      <CarCard />
+
+      <SectionTitle>{t('currency')}</SectionTitle>
+      <Segmented
+        value={settings.currency}
+        onChange={(currency) => updateSettings({ currency })}
+        options={CURRENCIES.map((c) => ({ value: c, label: `${CURRENCY_SYMBOLS[c]} ${c}` }))}
+      />
+
+      <SectionTitle>{t('units')}</SectionTitle>
+      <Segmented
+        value={settings.units}
+        onChange={(units) => updateSettings({ units })}
+        options={[
+          { value: 'metric', label: t('unitsMetric') },
+          { value: 'imperial', label: t('unitsImperial') },
+        ]}
+      />
+
       <SectionTitle>{t('language')}</SectionTitle>
       <LanguagePicker />
 
       <SectionTitle>{t('intervals')}</SectionTitle>
-      <IntervalsEditor />
+      <ThemedText type="small" themeColor="textSecondary">
+        {t('intervalsHint')}
+      </ThemedText>
+      <Intervals />
 
       <SectionTitle>{t('notifications')}</SectionTitle>
       <Button label={t('testNotification')} icon="bell" variant="secondary" onPress={test} />
@@ -148,6 +244,25 @@ const styles = StyleSheet.create({
   flex: {
     flex: 1,
   },
+  emojiRow: {
+    flexDirection: 'row',
+    gap: Spacing.half,
+  },
+  // Each emoji gets an equal share of the row, so all eight fit even on small phones
+  emojiChoice: {
+    flex: 1,
+    aspectRatio: 1,
+    maxWidth: 44,
+    borderRadius: 999,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: 'transparent',
+  },
+  carEmoji: {
+    fontSize: 22,
+    lineHeight: 28,
+  },
   listCard: {
     padding: 0,
     gap: 0,
@@ -156,16 +271,17 @@ const styles = StyleSheet.create({
   listRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    gap: Spacing.two,
     paddingHorizontal: Spacing.three,
     paddingVertical: Spacing.three,
   },
-  intervalBlock: {
-    gap: Spacing.two,
-    marginTop: Spacing.two,
+  kindEmoji: {
+    fontSize: 18,
+    lineHeight: 24,
   },
-  intervalHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  editor: {
+    paddingHorizontal: Spacing.three,
+    paddingBottom: Spacing.three,
     gap: Spacing.two,
   },
   note: {

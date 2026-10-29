@@ -57,26 +57,28 @@ export function getDueInfo(
     };
   }
 
-  const dueKm = last.odometerKm + interval.km;
+  // Some things (insurance, inspection) only go by date
+  const usesKm = interval.km > 0;
+  const dueKm = usesKm ? last.odometerKm + interval.km : null;
   const dueDate = addMonths(lastDate, interval.months);
   // Reminder goes off at 10 in the morning, nobody wants a 00:00 oil notification
   dueDate.setHours(10, 0, 0, 0);
 
-  const kmLeft = dueKm - odometerNow;
+  const kmLeft = dueKm !== null ? dueKm - odometerNow : null;
   const daysLeft = daysBetween(now, dueDate);
 
   let remindAt = dueDate;
-  if (kmPerDay > 0 && kmLeft > 0) {
+  if (kmLeft !== null && kmPerDay > 0 && kmLeft > 0) {
     // If I keep driving at my usual pace, when will I hit the km limit?
     const byKm = new Date(now.getTime() + (kmLeft / kmPerDay) * 24 * 60 * 60 * 1000);
     byKm.setHours(10, 0, 0, 0);
     if (byKm < remindAt) remindAt = byKm;
   }
 
-  const kmProgress = (odometerNow - last.odometerKm) / interval.km;
+  const kmProgress = usesKm ? (odometerNow - last.odometerKm) / interval.km : 0;
   const timeProgress = daysBetween(lastDate, now) / daysBetween(lastDate, dueDate);
   const progress = Math.max(kmProgress, timeProgress, 0);
-  const overdue = kmLeft <= 0 || daysLeft <= 0;
+  const overdue = (kmLeft !== null && kmLeft <= 0) || daysLeft <= 0;
 
   return {
     kind,

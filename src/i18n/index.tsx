@@ -2,8 +2,6 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useLocales } from 'expo-localization';
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 
-import { formatDate, formatMoney, formatNumber, monthLabel } from '@/lib/format';
-
 import de from './locales/de';
 import en, { type Translation, type TranslationKey } from './locales/en';
 import es from './locales/es';
@@ -63,19 +61,10 @@ function isSupported(code: string | null | undefined): code is LanguageCode {
   return !!code && code in TRANSLATIONS;
 }
 
-// The helpers are rebuilt for every language on purpose. The React Compiler caches
-// calls by their inputs, so a plain shared t() would keep showing the old language.
-function makeHelpers(language: LanguageCode) {
-  return {
-    t: (key: TranslationKey, params?: Params) => translateIn(language, key, params),
-    number: (value: number, digits = 0) => formatNumber(value, digits, language),
-    money: (value: number) => formatMoney(value, language),
-    date: (text: string) => formatDate(text, language),
-    month: (key: string) => monthLabel(key, language),
-  };
-}
-
-type I18nContextValue = ReturnType<typeof makeHelpers> & {
+type I18nContextValue = {
+  // Rebuilt for every language on purpose. The React Compiler caches calls by their
+  // inputs, so one shared t() would keep showing the old language.
+  t: (key: TranslationKey, params?: Params) => string;
   language: LanguageCode;
   choice: LanguageChoice;
   setChoice: (choice: LanguageChoice) => void;
@@ -107,7 +96,13 @@ export function I18nProvider({ children }: { children: ReactNode }) {
   }
 
   return (
-    <I18nContext.Provider value={{ ...makeHelpers(language), language, choice, setChoice }}>
+    <I18nContext.Provider
+      value={{
+        t: (key, params) => translateIn(language, key, params),
+        language,
+        choice,
+        setChoice,
+      }}>
       {children}
     </I18nContext.Provider>
   );

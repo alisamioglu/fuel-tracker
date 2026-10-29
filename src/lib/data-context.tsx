@@ -1,25 +1,42 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 
-import { useI18n } from '@/i18n';
+import { getActiveLanguage, useI18n } from '@/i18n';
 
+import { getAchievements, type Achievement } from './achievements';
 import { getStats, getTrips, type Trip } from './fuel';
 import { currentOdometer, getDueInfo } from './maintenance';
 import { ensurePermission, notifyNow, scheduleReminder } from './notifications';
-import { loadData, saveFuel, saveIntervals, saveMaintenance, type AppData } from './storage';
+import {
+  loadData,
+  saveFuel,
+  saveIntervals,
+  saveMaintenance,
+  saveSettings,
+  type AppData,
+} from './storage';
 import {
   MAINTENANCE_KINDS,
   type FuelEntry,
   type Interval,
   type MaintenanceEntry,
   type MaintenanceKind,
+  type Settings,
 } from './types';
+import { makeFormatter } from './units';
+
+// What a screen gets back after saving a fill-up, so it can cheer a little
+export type FuelSaveResult = {
+  trip: Trip | null;
+  newBadges: Achievement[];
+};
 
 type DataContextValue = AppData & {
-  addFuel: (entry: FuelEntry) => Trip | null;
+  saveFuelEntry: (entry: FuelEntry) => FuelSaveResult;
   removeFuel: (id: string) => void;
-  addMaintenance: (entry: MaintenanceEntry) => void;
+  saveMaintenanceEntry: (entry: MaintenanceEntry) => void;
   removeMaintenance: (id: string) => void;
   setInterval: (kind: MaintenanceKind, interval: Interval) => void;
+  updateSettings: (changes: Partial<Settings>) => void;
 };
 
 const DataContext = createContext<DataContextValue | null>(null);
@@ -30,6 +47,17 @@ export function dueForAll(data: AppData) {
   return MAINTENANCE_KINDS.map((kind) =>
     getDueInfo(kind, data.intervals[kind], data.maintenance, odometer, kmPerDay),
   );
+}
+
+function badgesOf(data: AppData) {
+  return getAchievements(data.fuel, dueForAll(data));
+}
+
+// Adds a new entry or replaces the one with the same id (that's how editing works)
+function upsert<T extends { id: string }>(list: T[], item: T) {
+  return list.some((x) => x.id === item.id)
+    ? list.map((x) => (x.id === item.id ? item : x))
+    : [...list, item];
 }
 
 export function DataProvider({ children }: { children: ReactNode }) {
@@ -65,33 +93,43 @@ export function DataProvider({ children }: { children: ReactNode }) {
     if (next.fuel !== current.fuel) saveFuel(next.fuel);
     if (next.maintenance !== current.maintenance) saveMaintenance(next.maintenance);
     if (next.intervals !== current.intervals) saveIntervals(next.intervals);
+    if (next.settings !== current.settings) saveSettings(next.settings);
   }
 
-  function addFuel(entry: FuelEntry) {
-    const next = { ...current, fuel: [...current.fuel, entry] };
-    const before = dueForAll(current);
+  function saveFuelEntry(entry: FuelEntry): FuelSaveResult {
+    const next = { ...current, fuel: upsert(current.fuel, entry) };
+    const dueBefore = dueForAll(current);
+    const badgesBefore = badgesOf(current);
     update(next);
 
-    // If this fill-up pushed me past the oil/coolant km limit, tell me right away
+    // If this fill-up pushed me past a km limit, tell me right away
+    const format = makeFormatter(getActiveLanguage(), current.settings);
     dueForAll(next).forEach((info, i) => {
-      const was = before[i].kmLeft;
+      const was = dueBefore[i].kmLeft;
       if (info.kmLeft !== null && info.kmLeft <= 0 && was !== null && was > 0) {
-        notifyNow(info.kind, -info.kmLeft).catch(() => {});
+        notifyNow(info.kind, format.distance(-info.kmLeft)).catch(() => {});
       }
     });
 
-    return getTrips(next.fuel).get(entry.id) ?? null;
+    const unlockedBefore = new Set(badgesBefore.filter((b) => b.unlocked).map((b) => b.id));
+    return {
+      trip: getTrips(next.fuel).get(entry.id) ?? null,
+      newBadges: badgesOf(next).filter((b) => b.unlocked && !unlockedBefore.has(b.id)),
+    };
   }
 
   const value: DataContextValue = {
     ...current,
-    addFuel,
+    saveFuelEntry,
     removeFuel: (id) => update({ ...current, fuel: current.fuel.filter((e) => e.id !== id) }),
-    addMaintenance: (entry) => update({ ...current, maintenance: [...current.maintenance, entry] }),
+    saveMaintenanceEntry: (entry) =>
+      update({ ...current, maintenance: upsert(current.maintenance, entry) }),
     removeMaintenance: (id) =>
       update({ ...current, maintenance: current.maintenance.filter((e) => e.id !== id) }),
     setInterval: (kind, interval) =>
       update({ ...current, intervals: { ...current.intervals, [kind]: interval } }),
+    updateSettings: (changes) =>
+      update({ ...current, settings: { ...current.settings, ...changes } }),
   };
 
   return <DataContext.Provider value={value}>{children}</DataContext.Provider>;
@@ -101,4 +139,11 @@ export function useData() {
   const value = useContext(DataContext);
   if (!value) throw new Error('useData must be used inside DataProvider');
   return value;
+}
+
+// Formatting that follows my language, currency and units
+export function useFormat() {
+  const { language } = useI18n();
+  const { settings } = useData();
+  return makeFormatter(language, settings);
 }

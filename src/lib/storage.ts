@@ -1,19 +1,42 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { getLocales } from 'expo-localization';
 
-import { DEFAULT_INTERVALS, type FuelEntry, type Intervals, type MaintenanceEntry } from './types';
+import {
+  CURRENCIES,
+  DEFAULT_INTERVALS,
+  type Currency,
+  type FuelEntry,
+  type Intervals,
+  type MaintenanceEntry,
+  type Settings,
+} from './types';
 
 // Everything lives on the phone as JSON, one key per list
 const KEYS = {
   fuel: 'fuel-tracker/fuel',
   maintenance: 'fuel-tracker/maintenance',
   intervals: 'fuel-tracker/intervals',
+  settings: 'fuel-tracker/settings',
 };
 
 export type AppData = {
   fuel: FuelEntry[];
   maintenance: MaintenanceEntry[];
   intervals: Intervals;
+  settings: Settings;
 };
+
+// First start: guess currency and units from the phone's region
+function defaultSettings(): Settings {
+  const locale = getLocales()[0];
+  const currency = CURRENCIES.find((c) => c === locale?.currencyCode) ?? 'EUR';
+  return {
+    currency: currency as Currency,
+    units: locale?.measurementSystem === 'us' ? 'imperial' : 'metric',
+    carName: '',
+    carEmoji: '🚗',
+  };
+}
 
 async function readJson<T>(key: string, fallback: T): Promise<T> {
   try {
@@ -26,13 +49,20 @@ async function readJson<T>(key: string, fallback: T): Promise<T> {
 }
 
 export async function loadData(): Promise<AppData> {
-  const [fuel, maintenance, intervals] = await Promise.all([
+  const defaults = defaultSettings();
+  const [fuel, maintenance, intervals, settings] = await Promise.all([
     readJson<FuelEntry[]>(KEYS.fuel, []),
     readJson<MaintenanceEntry[]>(KEYS.maintenance, []),
-    readJson<Intervals>(KEYS.intervals, DEFAULT_INTERVALS),
+    readJson<Partial<Intervals>>(KEYS.intervals, {}),
+    readJson<Partial<Settings>>(KEYS.settings, {}),
   ]);
-  // Merge with defaults in case I add a new maintenance kind later
-  return { fuel, maintenance, intervals: { ...DEFAULT_INTERVALS, ...intervals } };
+  // Merging with the defaults so new maintenance kinds and settings just show up
+  return {
+    fuel,
+    maintenance,
+    intervals: { ...DEFAULT_INTERVALS, ...intervals },
+    settings: { ...defaults, ...settings },
+  };
 }
 
 export function saveFuel(fuel: FuelEntry[]) {
@@ -45,4 +75,8 @@ export function saveMaintenance(maintenance: MaintenanceEntry[]) {
 
 export function saveIntervals(intervals: Intervals) {
   return AsyncStorage.setItem(KEYS.intervals, JSON.stringify(intervals));
+}
+
+export function saveSettings(settings: Settings) {
+  return AsyncStorage.setItem(KEYS.settings, JSON.stringify(settings));
 }

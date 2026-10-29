@@ -2,10 +2,9 @@ import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
 
 import { translate } from '@/i18n';
-import type { TranslationKey } from '@/i18n/locales/en';
 
 import type { DueInfo } from './maintenance';
-import type { MaintenanceKind } from './types';
+import { KIND_EMOJI, type MaintenanceKind } from './types';
 
 const CHANNEL_ID = 'maintenance';
 
@@ -19,13 +18,21 @@ Notifications.setNotificationHandler({
   }),
 });
 
-const MESSAGES: Record<MaintenanceKind, { title: TranslationKey; body: TranslationKey }> = {
-  oil: { title: 'notifOilTitle', body: 'notifOilBody' },
-  coolant: { title: 'notifCoolantTitle', body: 'notifCoolantBody' },
-};
-
 function reminderId(kind: MaintenanceKind) {
   return `${kind}-reminder`;
+}
+
+function reminderContent(kind: MaintenanceKind) {
+  // Oil and coolant get their own wording, the rest share a general one
+  if (kind === 'oil') return { title: translate('notifOilTitle'), body: translate('notifOilBody') };
+  if (kind === 'coolant') {
+    return { title: translate('notifCoolantTitle'), body: translate('notifCoolantBody') };
+  }
+  const name = translate(kind);
+  return {
+    title: `${KIND_EMOJI[kind]} ${translate('notifDueTitle', { name })}`,
+    body: translate('notifDueBody', { name }),
+  };
 }
 
 export async function ensurePermission(): Promise<boolean> {
@@ -56,10 +63,7 @@ export async function scheduleReminder(info: DueInfo) {
 
   await Notifications.scheduleNotificationAsync({
     identifier: id,
-    content: {
-      title: translate(MESSAGES[info.kind].title),
-      body: translate(MESSAGES[info.kind].body),
-    },
+    content: reminderContent(info.kind),
     trigger: {
       type: Notifications.SchedulableTriggerInputTypes.DATE,
       date: info.remindAt,
@@ -78,12 +82,12 @@ export async function sendTestNotification() {
 }
 
 // Fired right away, e.g. when a new fill-up shows I already passed the km limit
-export async function notifyNow(kind: MaintenanceKind, kmOver: number) {
+export async function notifyNow(kind: MaintenanceKind, overBy: string) {
   if (Platform.OS === 'web') return;
   await Notifications.scheduleNotificationAsync({
     content: {
-      title: translate('notifOverdueTitle', { name: translate(kind) }),
-      body: translate('notifOverdueBody', { km: Math.round(kmOver) }),
+      title: `${KIND_EMOJI[kind]} ${translate('notifOverdueTitle', { name: translate(kind) })}`,
+      body: translate('notifOverdueBody', { distance: overBy }),
     },
     trigger: null,
   });

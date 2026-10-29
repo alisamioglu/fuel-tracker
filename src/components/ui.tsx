@@ -5,18 +5,21 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
+  Switch,
   TextInput,
   View,
   type StyleProp,
   type TextInputProps,
   type ViewStyle,
 } from 'react-native';
+import Animated, { FadeInDown } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Icon, type IconName } from '@/components/icon';
 import { ThemedText } from '@/components/themed-text';
 import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
+import { tapFeedback } from '@/lib/haptics';
 
 // All the small building blocks I use on every screen live here
 
@@ -230,8 +233,15 @@ export function Button({ label, onPress, icon, variant = 'primary' }: ButtonProp
 
   return (
     <Pressable
-      onPress={onPress}
-      style={({ pressed }) => [styles.button, { backgroundColor: colors.bg }, pressed && styles.pressed]}>
+      onPress={() => {
+        tapFeedback();
+        onPress();
+      }}
+      style={({ pressed }) => [
+        styles.button,
+        { backgroundColor: colors.bg },
+        pressed && styles.pressedButton,
+      ]}>
       {icon && <Icon name={icon} color={colors.fg} size={18} />}
       <ThemedText type="smallBold" style={{ color: colors.fg }}>
         {label}
@@ -271,7 +281,10 @@ export function Segmented<T extends string>({
         return (
           <Pressable
             key={option.value}
-            onPress={() => onChange(option.value)}
+            onPress={() => {
+              tapFeedback();
+              onChange(option.value);
+            }}
             style={[styles.segment, selected && { backgroundColor: theme.backgroundElement }]}>
             {option.icon && <Icon name={option.icon} color={color} size={16} />}
             <ThemedText type="smallBold" style={{ color }} numberOfLines={1}>
@@ -407,6 +420,8 @@ const styles = StyleSheet.create({
   },
   input: {
     flex: 1,
+    // Without this a text input refuses to shrink and pushes the unit out of the box
+    minWidth: 0,
     paddingVertical: Spacing.three,
     fontSize: 17,
   },
@@ -421,6 +436,19 @@ const styles = StyleSheet.create({
   },
   pressed: {
     opacity: 0.7,
+  },
+  pressedButton: {
+    opacity: 0.85,
+    transform: [{ scale: 0.97 }],
+  },
+  emojiBadge: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  switchRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.three,
   },
   iconButton: {
     padding: Spacing.one,
@@ -453,3 +481,56 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
 });
+
+export function EmojiBadge({ emoji, tone = 'primary', size = 40 }: { emoji: string; tone?: Tone; size?: number }) {
+  const { soft } = useToneColors(tone);
+  return (
+    <View
+      style={[
+        styles.emojiBadge,
+        { backgroundColor: soft, width: size, height: size, borderRadius: size / 3 },
+      ]}>
+      <ThemedText style={{ fontSize: size * 0.5, lineHeight: size * 0.65 }}>{emoji}</ThemedText>
+    </View>
+  );
+}
+
+// Lists slide in one after the other, just a little, so the screen feels alive
+export function Appear({ index = 0, children }: { index?: number; children: ReactNode }) {
+  return (
+    <Animated.View entering={FadeInDown.delay(Math.min(index, 8) * 45).duration(320)}>
+      {children}
+    </Animated.View>
+  );
+}
+
+type SwitchRowProps = {
+  label: string;
+  hint?: string;
+  value: boolean;
+  onChange: (value: boolean) => void;
+};
+
+export function SwitchRow({ label, hint, value, onChange }: SwitchRowProps) {
+  const theme = useTheme();
+  return (
+    <View style={styles.switchRow}>
+      <View style={styles.flex}>
+        <ThemedText type="smallBold">{label}</ThemedText>
+        {hint && (
+          <ThemedText type="small" themeColor="textSecondary">
+            {hint}
+          </ThemedText>
+        )}
+      </View>
+      <Switch
+        value={value}
+        onValueChange={(v) => {
+          tapFeedback();
+          onChange(v);
+        }}
+        trackColor={{ true: theme.primary, false: theme.backgroundSelected }}
+      />
+    </View>
+  );
+}

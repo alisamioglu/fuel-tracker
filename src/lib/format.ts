@@ -14,12 +14,14 @@ export function formatNumber(value: number, digits = 0, locale = 'en'): string {
   });
 }
 
-export function formatMoney(value: number, locale = 'en'): string {
-  return `${formatNumber(value, 2, locale)} TL`;
-}
-
 export function todayString(): string {
   return toDateString(new Date());
+}
+
+export function endOfToday(): Date {
+  const date = new Date();
+  date.setHours(23, 59, 59, 999);
+  return date;
 }
 
 export function yesterdayString(): string {
@@ -66,6 +68,16 @@ export function formatDate(text: string, locale = 'en'): string {
 export function monthLabel(key: string, locale = 'en'): string {
   const [y, m] = key.split('-').map(Number);
   return new Date(y, m - 1, 1).toLocaleDateString(locale, { month: 'long', year: 'numeric' });
+}
+
+// 'morning' | 'afternoon' | 'evening' | 'night', for the little greeting on the home screen
+export function partOfDay(date = new Date()) {
+  const hour = date.getHours();
+  if (hour < 5) return 'night';
+  if (hour < 12) return 'morning';
+  if (hour < 18) return 'afternoon';
+  if (hour < 22) return 'evening';
+  return 'night';
 }
 
 export function makeId(): string {
