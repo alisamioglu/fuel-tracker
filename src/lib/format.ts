@@ -7,19 +7,25 @@ export function parseNumber(text: string): number {
   return Number(cleaned);
 }
 
-export function formatNumber(value: number, digits = 0): string {
-  return value.toLocaleString('en-US', {
+export function formatNumber(value: number, digits = 0, locale = 'en'): string {
+  return value.toLocaleString(locale, {
     minimumFractionDigits: digits,
     maximumFractionDigits: digits,
   });
 }
 
-export function formatMoney(value: number): string {
-  return `${formatNumber(value, 2)} TL`;
+export function formatMoney(value: number, locale = 'en'): string {
+  return `${formatNumber(value, 2, locale)} TL`;
 }
 
 export function todayString(): string {
   return toDateString(new Date());
+}
+
+export function yesterdayString(): string {
+  const date = new Date();
+  date.setDate(date.getDate() - 1);
+  return toDateString(date);
 }
 
 export function toDateString(date: Date): string {
@@ -51,15 +57,15 @@ export function daysBetween(from: Date, to: Date): number {
   return (to.getTime() - from.getTime()) / (1000 * 60 * 60 * 24);
 }
 
-export function formatDate(text: string): string {
+export function formatDate(text: string, locale = 'en'): string {
   const date = parseDate(text);
   if (!date) return text;
-  return date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+  return date.toLocaleDateString(locale, { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
-export function monthLabel(key: string): string {
+export function monthLabel(key: string, locale = 'en'): string {
   const [y, m] = key.split('-').map(Number);
-  return new Date(y, m - 1, 1).toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
+  return new Date(y, m - 1, 1).toLocaleDateString(locale, { month: 'long', year: 'numeric' });
 }
 
 export function makeId(): string {

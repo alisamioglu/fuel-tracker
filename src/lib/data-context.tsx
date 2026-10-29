@@ -1,12 +1,18 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 
+import { useI18n } from '@/i18n';
+
 import { getStats, getTrips, type Trip } from './fuel';
 import { currentOdometer, getDueInfo } from './maintenance';
 import { ensurePermission, notifyNow, scheduleReminder } from './notifications';
 import { loadData, saveFuel, saveIntervals, saveMaintenance, type AppData } from './storage';
-import type { FuelEntry, Interval, MaintenanceEntry, MaintenanceKind } from './types';
-
-const KINDS: MaintenanceKind[] = ['oil', 'coolant'];
+import {
+  MAINTENANCE_KINDS,
+  type FuelEntry,
+  type Interval,
+  type MaintenanceEntry,
+  type MaintenanceKind,
+} from './types';
 
 type DataContextValue = AppData & {
   addFuel: (entry: FuelEntry) => Trip | null;
@@ -21,19 +27,21 @@ const DataContext = createContext<DataContextValue | null>(null);
 export function dueForAll(data: AppData) {
   const odometer = currentOdometer(data.fuel, data.maintenance);
   const kmPerDay = getStats(data.fuel)?.kmPerDay ?? 0;
-  return KINDS.map((kind) =>
+  return MAINTENANCE_KINDS.map((kind) =>
     getDueInfo(kind, data.intervals[kind], data.maintenance, odometer, kmPerDay),
   );
 }
 
 export function DataProvider({ children }: { children: ReactNode }) {
   const [data, setData] = useState<AppData | null>(null);
+  const { language } = useI18n();
 
   useEffect(() => {
     loadData().then(setData);
   }, []);
 
   // Every time something changes I rebuild the scheduled reminders from scratch
+  // (language too, so the notification text matches the app)
   useEffect(() => {
     if (!data || data.maintenance.length === 0) return;
     (async () => {
@@ -46,7 +54,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
         console.warn('Could not schedule reminders', error);
       }
     })();
-  }, [data]);
+  }, [data, language]);
 
   // Don't show the screens before the saved data is back, otherwise a quick save could wipe it
   if (!data) return null;

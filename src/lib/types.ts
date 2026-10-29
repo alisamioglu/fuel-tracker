@@ -31,7 +31,4 @@ export const DEFAULT_INTERVALS: Intervals = {
   coolant: { km: 10000, months: 6 },
 };
 
-export const KIND_LABELS: Record<MaintenanceKind, string> = {
-  oil: 'Engine oil',
-  coolant: 'Coolant',
-};
+export const MAINTENANCE_KINDS: MaintenanceKind[] = ['oil', 'coolant'];

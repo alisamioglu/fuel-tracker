@@ -1,8 +1,13 @@
 import { addMonths, daysBetween, parseDate } from './format';
 import type { FuelEntry, Interval, MaintenanceEntry, MaintenanceKind } from './types';
 
+export type DueStatus = 'none' | 'ok' | 'soon' | 'due';
+
 export type DueInfo = {
   kind: MaintenanceKind;
+  status: DueStatus;
+  // How much of the interval is used up: 0 = just done, 1 = due. Whichever of km/time is further.
+  progress: number;
   last: MaintenanceEntry | null;
   dueKm: number | null;
   dueDate: Date | null;
@@ -40,6 +45,8 @@ export function getDueInfo(
   if (!last || !lastDate) {
     return {
       kind,
+      status: 'none',
+      progress: 0,
       last: null,
       dueKm: null,
       dueDate: null,
@@ -66,14 +73,21 @@ export function getDueInfo(
     if (byKm < remindAt) remindAt = byKm;
   }
 
+  const kmProgress = (odometerNow - last.odometerKm) / interval.km;
+  const timeProgress = daysBetween(lastDate, now) / daysBetween(lastDate, dueDate);
+  const progress = Math.max(kmProgress, timeProgress, 0);
+  const overdue = kmLeft <= 0 || daysLeft <= 0;
+
   return {
     kind,
+    status: overdue ? 'due' : progress >= 0.85 ? 'soon' : 'ok',
+    progress,
     last,
     dueKm,
     dueDate,
     kmLeft,
     daysLeft,
     remindAt: remindAt > now ? remindAt : null,
-    overdue: kmLeft <= 0 || daysLeft <= 0,
+    overdue,
   };
 }
